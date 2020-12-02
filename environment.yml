@@ -1,0 +1,8 @@
+name: ameynert-stage_cram_filter-dev
+channels:
+ - conda-forge
+ - bioconda
+ - defaults
+dependencies:
+ - bioconda::samtools=1.11-0
+ - bioconda::bedtools=2.29.2-0
