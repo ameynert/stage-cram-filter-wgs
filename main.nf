@@ -133,6 +133,26 @@ process cram {
   """
 }
 
+// Calculate md5 checksums on the CRAM files
+process md5 {
+
+  publishDir params.outdir, mode: 'copy'
+
+  input:
+  file(cram) from cram_ch
+
+  output:
+  file('*.md5') into md5_ch
+
+  script:
+  """
+  for file in ${cram}
+  do
+    md5sum \${file} > \${file}.md5
+  done
+  """
+}
+
 workflow.onComplete { 
     println ( workflow.success ? "Done!" : "Oops .. something went wrong" )
     log.info "Pipeline Complete"
