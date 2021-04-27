@@ -12,7 +12,7 @@ def helpMessage() {
       --input                       Path to input bam files on datastore
       --outdir                      The output directory where the results will be saved (filtered CRAM files)
       --targets                     Target BED file for filtering
-      --reference                   Reference genome for CRAM compression
+      --padding                     Target padding
     """.stripIndent()
 }
 
@@ -28,6 +28,7 @@ if (params.help){
 params.input = "*.{bam,bai}"
 params.outdir = 'filtered_cram_files'
 params.targets = 'targets.bed'
+params.padding = 0
 
 // Header 
 println "========================================================"
@@ -38,7 +39,7 @@ println "['Pipeline Version']  = workflow.manifest.version"
 println "['Input']             = $params.input"
 println "['Output dir']        = $params.outdir"
 println "['Targets']           = $params.targets"
-println "['Reference']         = $params.reference"
+println "['Padding']           = $params.padding"
 println "['Working dir']       = workflow.workDir"
 println "['Container Engine']  = workflow.containerEngine"
 println "['Current home']      = $HOME"
@@ -57,10 +58,6 @@ if (!params.targets) {
     exit 1, "Target BED file not specified"
 }
 
-if (!params.reference) {
-    exit 1, "Reference genome FASTA file not specified"
-}
-
 if (!params.outdir) {
     exit 1, "Output directory not specified"
 }
@@ -68,7 +65,6 @@ if (!params.outdir) {
 /*
  * Create value channels for input files
  */
-reference_ch = Channel.value(file(params.reference))
 targets_ch = Channel.value(file(params.targets))
 
 /*
@@ -96,60 +92,41 @@ process stage {
   """
 }
 
-// Subset the BAM file to the target regions
+// Subset the BAM file to the target regions and output reads
 process subset {
+
+  publishDir params.outdir, mode: 'copy'
 
   input:
   set val(name), file(bam) from bam_ch
   file(targets) from targets_ch
 
   output:
-  set val(name), file('subset/*') into filtered_ch
+  set val(name), file('*.fastq.gz') into subset_ch
 
   script:
   """
-  mkdir subset
-  bedtools intersect -abam ${name}.bam -b ${targets} > subset/${name}.bam
-  samtools index subset/${name}.bam
+  bazam -bam ${name}.bam -L ${targets} -pad ${params.padding} \
+    -n ${task.cpus} -r1 ${name}_R1.fastq -r2 ${name}_R2.fastq
+  gzip *.fastq
   """
 }
 
-// Compress the filtered BAM file to CRAM
-process cram {
-
-  publishDir params.outdir, mode: 'copy'
-
-  input:
-  set val(name), file(bam) from filtered_ch
-  file(reference) from reference_ch
-
-  output:
-  file('*.cram*') into cram_ch
-
-  script:
-  """
-  samtools view -@ ${task.cpus} -h -C ${name}.bam -T ${reference} -o ${name}.cram
-  samtools index ${name}.cram
-  """
-}
-
-// Calculate md5 checksums on the CRAM files
+// Calculate md5 checksums on the read files
 process md5 {
 
   publishDir params.outdir, mode: 'copy'
 
   input:
-  file(cram) from cram_ch
+  set val(name), file(fastq) from subset_ch
 
   output:
   file('*.md5') into md5_ch
 
   script:
   """
-  for file in ${cram}
-  do
-    md5sum \${file} > \${file}.md5
-  done
+  md5sum ${name}_R1.fastq.gz > ${name}_R1.fastq.gz.md5
+  md5sum ${name}_R2.fastq.gz > ${name}_R2.fastq.gz.md5
   """
 }
 
